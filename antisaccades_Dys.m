@@ -6,7 +6,7 @@ close all;
 clear all;
 sca;
 
-Screen('Preference', 'SkipSyncTests', 1)
+% Screen('Preference', 'SkipSyncTests', 1) % only needed with old screens or weird setups, do not use in lab
 
 ExperimentName='antisaccades_eeg';
 % add a subject ID
@@ -20,7 +20,7 @@ monitorheight = 17.5;     %29.9 cm in EEG lab
 monitordistance = 60;   %70 cm in EEG lab
 
 % determine if Eyelink is used
-UseEyelink = 0;   %should always be 1 if running the fully setup experiment
+UseEyelink = 1;   %should always be 1 if running the fully setup experiment
 
 %create edf file
 datum=clock();
@@ -32,18 +32,18 @@ if exist(savePath,'dir')~=7
 end
 
 % determine if EEG is used
-outp_switch = 0;        %should always be 1 if running the fully setup experiment 
+outp_switch = 1;        %should always be 1 if running the fully setup experiment 
 % %% Stimuli List for EEG
-% start_experiment    =   99;
-% start_trial         =   9;
-% target_left         =   3;
-% target_right        =   2;
-% prosaccade          =   5;
-% antisaccade         =   6;
-% gap                 =   11;
-% overlap             =   12;
-% config_io;
-% address             =   hex2dec('D010');
+start_experiment    =   99;
+start_trial         =   9;
+target_left         =   3;
+target_right        =   2;
+prosaccade          =   5;
+antisaccade         =   6;
+gap                 =   11;
+overlap             =   12;
+config_io;
+address             =   hex2dec('D010');
 
 % Seed the random number generator. Here we use the older way to be compatible with older systems. Newer syntax would be rng('shuffle'). 
 rand('seed', sum(100 * clock));
