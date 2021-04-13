@@ -1,0 +1,1 @@
+function ELPH_dotrackersetup(el)%%% Wechselt in den Kalibrationsmodus und führt die Kalibration durchEyelink( 'Command', 'heuristic_filter = ON');ListenChar(2);Eyelink( 'StartSetup',1);		% start setup modeListenChar(1);Eyelink( 'WaitForModeReady', el.waitformodereadytime );  % noch notwendig?return	
