@@ -1,0 +1,503 @@
+%----------------------------------------------------------------------
+%                       Initialisation
+%----------------------------------------------------------------------
+% Clear the workspace
+close all;
+clear all;
+sca;
+pause on; 
+
+Screen('Preference', 'SkipSyncTests', 1);
+
+% Seed the random number generator
+rand('seed', sum(100 * clock));
+Datum=clock();
+
+
+% ########################## Parameters #################################
+ExperimentName = 'pursuit';
+subjectnumber = 0 ; % 0 = test
+
+% Some initial values, distance measured in cm
+monitorWidth = 60; 
+monitorHeight = 34;
+monitorDistance = 72;
+numTrials = 48; % should always be a divisible by 4!
+
+% are these trials recorded monocular or binocular?
+isbinocular = 1; % 1 is default, but may be changed to 0 if one eye is obviously bad
+
+% determine if Eyelink is used, 0 = DEMO MODE
+UseEyelink = 0; %should always be 1 if running the fully setup experiment
+
+% determine if EEG is used
+outp_switch = 0;   %should always be 1 if running the fully setup experiment 
+
+%% Stimuli List for EEG
+
+start_experiment        =   99;
+ start_trial            =   9;
+ target_left            =   1;
+ target_right           =   3;
+ target_up              =   2;
+ target_down            =   4;
+ 
+ %connect to EEG
+ config_io;
+ address             =   hex2dec('D010');
+
+
+% #######################################################################
+
+edfNametemp = sprintf('S%s%02d%02d%02d.edf',char(datum(2)+64),datum(3),datum(4),datum(5));
+edfName = sprintf('%05d.%s.%04d%02d%02d_%02d%02d%02d.edf',subjectnumber,ExperimentName,datum(1),datum(2),datum(3),datum(4),datum(5),floor(datum(6)));
+savePath=['.\', sprintf('%04d\\%02d\\',datum(1),datum(2),datum(3))];
+if exist(savePath,'dir')~=7 %%% Existenz des Verzeichnisse prüfen, sonst erstellen
+    mkdir('.',savePath);
+end
+
+% Get the screen numbers.
+screens = Screen('Screens');
+screenNumber = 1;
+
+% Define black and white
+white = WhiteIndex(screenNumber);
+black = BlackIndex(screenNumber);
+grey = white/2;
+background = black;
+foreground = white;
+
+% Open the screen to initilize Psychtoolbox
+[window, windowRect] = Screen('OpenWindow', screenNumber, background, [], 32, 2, [], [],  kPsychNeed32BPCFloat);
+
+% Flip to clear
+Screen('Flip', window);
+
+% Get the size of the on screen window in pixels.
+[screenXpixels, screenYpixels] = Screen('WindowSize', window);
+
+% Query the frame duration
+ifi = Screen('GetFlipInterval', window);
+
+% Get the centre coordinate of the window
+[xCenter, yCenter] = RectCenter(windowRect);
+
+% Set the text size
+Screen('TextSize', window, 40);
+
+% Enable alpha blending for anti-aliasing
+Screen('BlendFunction', window, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+% ############################# Eyelink #################################
+% Prepair Eyelink
+if UseEyelink==1
+    el = ELPH_EyelinkInitDefaults(window,background,foreground); %% Load Default-Values
+    ELPH_initEL2(edfNametemp);
+    fprintf('EDF wird geöffnet\n');
+    
+    Eyelink('Command','screen_pixel_coords = %d %d %d %d',0,0,screenXpixels-1,screenYpixels-1);
+    Eyelink('Message','DISPLAY_COORDS %d %d %d %d',0,0,screenXpixels,screenYpixels);
+    Eyelink('Message','%s',sprintf('DISPLAY_SIZE %6.1f %6.1f %6.1f',monitorWidth,monitorHeight,monitorDistance));
+end
+% ########################################################################
+
+%-----------------------------------------------------------------------
+%                             Dot information
+%-----------------------------------------------------------------------
+% Amplitude in Grad und in Pixel
+angularDeg = 15;
+amplitude = tand(angularDeg) * monitorDistance * screenYpixels / monitorWidth;
+
+% Geschwindigkeit in Grad/s und in Pixel/s
+velocityDeg = 10;
+velocity = tand(velocityDeg) * monitorDistance * screenYpixels / monitorWidth;
+
+% Set the color of our dot to white
+dotColor = [255 255 255];
+
+% Punkt größe in Grad und in Pixel
+dotSizeDeg = 0.6;
+dotSizePix = 18; %tand(dotSizeDeg) * monitorDistance * screenXpixels / monitorWidth;
+
+% Dot Position im Zentrum des Bildschierms
+dotXpos = xCenter;
+dotYpos = yCenter;
+
+% Lage Fixationspunkt randomisieren
+PosOneTwo = repmat([1,2,3,4],1,numTrials/4);
+pos = PosOneTwo(randperm(numTrials));
+%-----------------------------------------------------------------------
+%                             Timeing information
+%-----------------------------------------------------------------------
+
+% Dauer Fixationspunkt
+fixTimeSecs = 1.5;
+fixTimeFrames = round(fixTimeSecs / ifi);
+
+% Zeit nach der der Sinus pursuit eintreten soll
+sinTimeSecs = 1.5;
+sinTimeFrames = round(sinTimeSecs / ifi);
+
+% Dauer des Pursuits insgesammt
+purTimeSecs = 8.5;
+purTimeFrames = round(purTimeSecs / ifi);
+
+% Dauer des Stimulus vor der letzten Sakkade
+stimTimeSecs = 1;
+stimTimeFrames = round(stimTimeSecs / ifi);
+
+% Start Zeit des Dots
+time = 0;
+
+% Sync us and get a time stamp
+vbl = Screen('Flip', window);
+waitframes = 1;
+
+% Maximum priority level
+topPriorityLevel = MaxPriority(window);
+Priority(topPriorityLevel);
+
+% Save the order of the dots
+Position = NaN (1,numTrials);
+
+% Vektoren
+VekTime = 0:ifi:8.5;
+
+dotposition = NaN(length(VekTime),4,2);
+
+% Prepare vektor
+for itime = 1 : length(VekTime)
+    if VekTime(itime) <= sinTimeSecs
+        dotposition(itime,:,:) = [xCenter - amplitude + velocity * VekTime(itime), yCenter              ;
+            xCenter                      , yCenter - amplitude + velocity * VekTime(itime);
+            xCenter + amplitude - velocity * VekTime(itime), yCenter                      ;
+            xCenter                      , yCenter + amplitude - velocity * VekTime(itime)];
+    elseif VekTime(itime) > sinTimeSecs
+        dotposition(itime,:,:) = [xCenter + amplitude * sin(2/3 * (VekTime(itime-2) - sinTimeSecs)), yCenter                     ;
+            xCenter                             , yCenter + amplitude * sin(2/3 * (VekTime(itime-2) - sinTimeSecs));
+            xCenter - amplitude * sin(2/3 * (VekTime(itime-2) - sinTimeSecs)), yCenter                             ;
+            xCenter                             , yCenter - amplitude * sin(2/3 * (VekTime(itime-2) - sinTimeSecs))];
+    end
+end
+
+
+% Save some values
+data.Subjectnumber = subjectnumber;
+data.Datum = Datum;
+data.ExperimentName = ExperimentName;
+data.Monitor.monitorWidth = monitorWidth;
+data.Monitor.monitorDistance = monitorDistance;
+data.Monitor.monitorHeight = monitorHeight;
+data.Monitor.Resolution.X = screenXpixels;
+data.Monitor.Resolution.Y = screenYpixels;
+data.angularDeg = angularDeg;
+data.velocityDeg = velocityDeg;
+data.dotSizeDeg = dotSizeDeg;
+data.randpos = pos;
+data.fixTimeSecs = fixTimeSecs;
+data.sinTimeSecs = sinTimeSecs;
+data.purTimeSecs = purTimeSecs;
+data.stimTimeSecs = stimTimeSecs;
+
+%----------------------------------------------------------------------
+%                       Keyboard information
+%----------------------------------------------------------------------
+
+% Define the keyboard keys that are listened for. We will be using the
+% escape key as a exit/reset key
+
+KbName('UnifyKeyNames');
+escapeKey = KbName('ESCAPE');
+space = KbName('space');
+
+%----------------------------------------------------------------------
+%                       Experimental loop
+%----------------------------------------------------------------------
+% ############################ EL Kalibration ###########################
+%%% EL Kalibration;
+if UseEyelink==1
+    Eyelink('Message','start experiment');
+    Eyelink('Message','Calibration');
+    fprintf('Kalibration wird gestartet');
+    ELPH_dotrackersetup(el);
+    eye_used=Eyelink('EyeAvailable'); %get eye thats tracked
+    if eye_used == el.BINOCULAR
+        eye_used = el.LEFT_EYE;
+    end
+end
+
+if outp_switch == 1
+        outp(address, start_experiment)
+end
+
+% ######################################################################
+
+% Animation loop: we loop for the total number of trials
+for trial = 1:numTrials
+    
+    %Kommunikation mit dem Eyelink-Rechner
+    if UseEyelink==1
+        
+        trialText=sprintf('TRIALID %d-%d',trial,numTrials);
+        Eyelink('Message','%s',trialText); %%% Geht nicht direkt, keine Ahnung warum???
+        Eyelink('Command','record_status_message "%s Repeat %d von %d"',edfName,trial,numTrials);
+        Eyelink('StartRecording');
+        WaitSecs(0.05); %%% kurzes Warten auf Eyelink
+        Eyelink('Message','start recording');
+    end
+    
+   
+    if outp_switch == 1
+            outp(address, start_trial)
+    end
+    
+    % If this is the first repeat we present a start screen and wait for a
+    % key-press
+    if trial == 1
+        DrawFormattedText(window,'Fix The Dot \n\n Press Any Key To Begin',...
+            'center', 'center',white);
+        Screen('Flip', window);
+        KbStrokeWait;
+    end
+     KbReleaseWait;
+    data.Trialdata.Trialstart(1,trial)=GetSecs(); %Trialstart für später speichern
+    
+    %Initialisierung von skip_trial für die online-Fixkontrolle
+    skip_trial = 0;
+    
+    %% --------------------------------------------------------------------
+    %                       Fixation
+    %----------------------------------------------------------------------
+    
+    % Draw the Fixationdot
+    dotXpos = xCenter;
+    dotYpos = yCenter;
+    Screen('DrawDots', window, [dotXpos dotYpos], dotSizePix, dotColor, [], 2);
+    Screen('DrawDots', window, [dotXpos dotYpos], 2, background, [], 2);
+    vbl = Screen('Flip', window, vbl + (waitframes - 0.5) * ifi);
+    %     WaitSecs(1.5);
+    start_time = GetSecs;
+    while GetSecs <= start_time + 1.5
+        [keyIsDown,secs,keyCode] = KbCheck;
+        if keyCode(escapeKey)
+            if UseEyelink==1
+                Eyelink('StopRecording');
+                Eyelink('Message','stop experiment');
+            end
+            
+            %Daten speichern
+            save([savePath edfName(:,1:size(edfName,2)-3) 'mat'],'data');
+            
+            %%% Eyelink beenden:
+            if UseEyelink==1
+                WaitSecs(1);
+                Eyelink('CloseFile');
+                fprintf('EDF wird geschlossen\n');
+                WaitSecs(0.5);
+                % Eyelink-Datein speichern
+                Eyelink('ReceiveFile',edfNametemp,[savePath,edfName]);
+                Eyelink('Shutdown');
+            end
+            sca;
+            return
+            
+        end
+        
+    end
+    %% --------------------------------------------------------------------
+    %                       Stimulus presentation
+    %----------------------------------------------------------------------
+    while time < purTimeSecs
+        % Position of the dot on this frame
+        dotXpos = dotposition(round(time/ifi)+1,pos(trial),1);
+        dotYpos = dotposition(round(time/ifi)+1,pos(trial),2);
+        Screen('DrawDots', window, [dotXpos dotYpos], dotSizePix, dotColor, [], 2);
+        Screen('DrawDots', window, [dotXpos dotYpos], 2, background, [], 2);
+        vbl = Screen('Flip', window, vbl + (waitframes - 0.5) * ifi);
+        
+        % Benachrichtigung an EyeLink ob Fixationspunk rechts, links, oben
+        % oder unten
+        if UseEyelink == 1 & pos(trial) == 3
+            Eyelink('Message', 'right');
+        elseif UseEyelink == 1 & pos(trial) == 1
+            Eyelink('Message', 'left');
+        elseif UseEyelink == 1 & pos(trial) == 2
+            Eyelink('Message', 'up');
+        elseif UseEyelink == 1 & pos(trial) == 4
+            Eyelink('Message', 'down');
+        end
+        
+        
+             
+      % same for EEG
+        if  outp_switch == 1 & pos(trial) == 3
+            outp(address, target_right);
+        elseif outp_switch == 1 & pos(trial) == 1
+            outp(address, target_left);
+        elseif outp_switch == 1 & pos(trial) == 2
+            outp(address, target_up);
+        elseif outp_switch == 1 & pos(trial) == 4
+            outp(address, target_down);
+       end
+      
+        % Increment the time
+        time = time + ifi;
+        
+        %Keyboardabfrage zum vorzeitigen Abbrechen der Messung per
+        %ESC-Taste. Gemessene Trials bis dahin werden gespeichert
+        [keyIsDown,secs,keyCode] = KbCheck;
+        if keyCode(escapeKey)
+            if UseEyelink==1
+                Eyelink('StopRecording');
+                Eyelink('Message','stop experiment');
+            end
+            
+            %Daten speichern
+            save([savePath edfName(:,1:size(edfName,2)-3) 'mat'],'data');
+            
+            %%% Eyelink beenden:
+            if UseEyelink==1
+                WaitSecs(1);
+                Eyelink('CloseFile');
+                fprintf('EDF wird geschlossen\n');
+                WaitSecs(0.5);
+                % Eyelink-Datein speichern
+                Eyelink('ReceiveFile',edfNametemp,[savePath,edfName]);
+                Eyelink('Shutdown');
+            end
+            sca;
+            return
+            
+        end
+        
+    end
+    
+    % Punkt verharrt 1 Sekunde an einer der vier Positionen (oben unten rechts links)
+    Screen('DrawDots', window, [dotXpos dotYpos], dotSizePix, dotColor, [], 2);
+    Screen('DrawDots', window, [dotXpos dotYpos], 2, background, [], 2);
+    vbl = Screen('Flip', window, vbl + (waitframes - 0.5) * ifi);
+      
+    start_time = GetSecs;
+    while GetSecs <= start_time + 1
+        %Keyboardabfrage zum vorzeitigen Abbrechen der Messung per
+        %ESC-Taste. Gemessene Trials bis dahin werden gespeichert
+        [keyIsDown,secs,keyCode] = KbCheck;
+        if keyCode(escapeKey)
+            if UseEyelink==1
+                Eyelink('StopRecording');
+                Eyelink('Message','stop experiment');
+            end
+            
+            %Daten speichern
+            save([savePath edfName(:,1:size(edfName,2)-3) 'mat'],'data');
+            
+            %%% Eyelink beenden:
+            if UseEyelink==1
+                WaitSecs(1);
+                Eyelink('CloseFile');
+                fprintf('EDF wird geschlossen\n');
+                WaitSecs(0.5);
+                % Eyelink-Datein speichern
+                Eyelink('ReceiveFile',edfNametemp,[savePath,edfName]);
+                Eyelink('Shutdown');
+            end
+            sca;
+            return            
+        end                
+    end
+    
+    %% --------------------------------------------------------------------
+    %                       fixation dot in the middle
+    %----------------------------------------------------------------------
+    %Draw the dot at the central position
+    dotXpos = xCenter;
+    dotYpos = yCenter;
+    Screen('DrawDots', window, [dotXpos dotYpos], dotSizePix, dotColor, [], 2);
+    Screen('DrawDots', window, [dotXpos dotYpos], 2, background, [], 2);
+    vbl = Screen('Flip', window, vbl + (waitframes - 0.5) * ifi);
+    
+    start_time = GetSecs;
+    while GetSecs <= start_time + 1
+        %Keyboardabfrage zum vorzeitigen Abbrechen der Messung per
+        %ESC-Taste. Gemessene Trials bis dahin werden gespeichert
+        [keyIsDown,secs,keyCode] = KbCheck;
+        if keyCode(escapeKey)
+            if UseEyelink==1
+                Eyelink('StopRecording');
+                Eyelink('Message','stop experiment');
+            end
+            
+            %Daten speichern
+            save([savePath edfName(:,1:size(edfName,2)-3) 'mat'],'data');
+            
+            %%% Eyelink beenden:
+            if UseEyelink==1
+                WaitSecs(1);
+                Eyelink('CloseFile');
+                fprintf('EDF wird geschlossen\n');
+                WaitSecs(0.5);
+                % Eyelink-Datein speichern
+                Eyelink('ReceiveFile',edfNametemp,[savePath,edfName]);
+                Eyelink('Shutdown');
+            end
+            sca;
+            return
+            
+        end
+        
+    end
+    % Reset time
+    time = 0;
+    
+    % Status message about correct trials
+    if skip_trial == 0
+        disp(['Trial ' num2str(trial)])
+    end
+    
+    if UseEyelink==1
+        %%% Eyelink-Befehle:
+        Eyelink('Message','stop recording');
+        data.Trialdata.Trialstop(1,trial)=GetSecs();
+        WaitSecs(0.05); %%% Warten auf Eyelink
+        Eyelink('StopRecording');
+        WaitSecs(0.05); %%% Warten auf Eyelink
+    else
+        data.Trialdata.Trialstop(1,trial)=GetSecs(); %%% Endzeit des Trials auch dann speichern, wenn Eyelink nicht verwendet wird
+    end
+    
+    % start Driftcorrection 
+    if UseEyelink==1 && mod(trial,1)==0
+        Eyelink('DriftCorrStart',xCenter,yCenter,1,1,1);
+    end
+
+end
+%% ----------------------------------------------------------------------
+%                       Clean up
+%----------------------------------------------------------------------
+if UseEyelink==1
+    Eyelink('StopRecording');
+    Eyelink('Message','stop experiment');
+end
+
+% save eyelink data
+save([savePath edfName(:,1:size(edfName,2)-3) 'mat'],'data');
+
+%%% close Eyelink:
+if UseEyelink==1
+    WaitSecs(1);
+    Eyelink('CloseFile');
+    fprintf('EDF wird geschlossen\n');
+    WaitSecs(0.5);
+    % Eyelink-Datein speichern
+    Eyelink('ReceiveFile',edfNametemp,[savePath,edfName]);
+    Eyelink('Shutdown');
+end
+% End of experiment screen. We clear the screen once they have made their
+% response
+DrawFormattedText(window, 'Experiment Finished \n\n Press Any Key To Exit',...
+    'center', 'center', white);
+Screen('Flip', window);
+KbStrokeWait;
+pause off;
+sca;
+
