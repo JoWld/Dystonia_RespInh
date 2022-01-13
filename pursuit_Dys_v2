@@ -58,7 +58,7 @@ end
 
 % Get the screen numbers.
 screens = Screen('Screens');
-screenNumber = 1;
+screenNumber=max(screens);
 
 % Define black and white
 white = WhiteIndex(screenNumber);
